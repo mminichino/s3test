@@ -129,6 +129,7 @@ class tester:
         self.percentage = 0
         self.xfer_total = 0
         self.current_file = 0
+        self.last_file = 0
         self.start_time = datetime.datetime.now().replace(microsecond=0)
         self.end_time = datetime.datetime.now().replace(microsecond=0)
         config = Config(
@@ -159,20 +160,15 @@ class tester:
         print("Run time: ", end='')
         print(self.end_time - self.start_time)
 
-    def status_callback(self, number, count=False):
+    def status_callback(self, number):
 
-        if count:
-            done_pct = 1 / self.opCount
-        else:
-            done_pct = number / self.xfer_total
+        if self.last_file == self.current_file:
+            return
 
-        self.percentage += (done_pct * 100)
+        self.percentage += (1 / self.opCount) * 100
+        self.last_file = self.current_file
 
-        if self.percentage == 100:
-            end_char='Done.\n'
-        else:
-            end_char='\r'
-        print("File %d of %d in progress, %d%% completed ... " % (self.current_file, self.opCount, self.percentage), end=end_char)
+        print("File %d of %d in progress, %d%% completed ... " % (self.current_file, self.opCount, self.percentage), end='\r')
 
     def upload_file(self, file_name, bucket, name=None):
 
@@ -181,7 +177,12 @@ class tester:
 
         try:
             response = self.s3.upload_file(file_name, bucket, name, Callback=self.status_callback)
-        except (ClientError, boto3.exceptions.S3UploadFailedError) as e:
+            if self.current_file == self.opCount:
+                print("")
+        except (botocore.exceptions.ClientError, boto3.exceptions.S3UploadFailedError) as e:
+            if self.percentage > 0:
+                print("")
+                print("Transferred %s" % formatSize(round(self.xfer_total * (self.percentage/100))))
             print("Can not upload object %s: %s" % (name, str(e)))
             sys.exit(1)
 
@@ -192,7 +193,12 @@ class tester:
 
         try:
             response = self.s3.download_file(bucket, obj_name, dest, Callback=self.status_callback)
+            if self.current_file == self.opCount:
+                print("")
         except (ClientError, PermissionError) as e:
+            if self.percentage > 0:
+                print("")
+                print("Transferred %s" % formatSize(round(self.xfer_total * (self.percentage/100))))
             print("Can not download object %s: %s" % (obj_name, str(e)))
             sys.exit(1)
 
@@ -200,7 +206,9 @@ class tester:
 
         try:
             response = self.s3.delete_object(Bucket=bucket, Key=obj_name)
-            self.status_callback(None, count=True)
+            self.status_callback(None)
+            if self.current_file == self.opCount:
+                print("")
         except (ClientError) as e:
             print("Can not delete object %s: %s" % (obj_name, str(e)))
             sys.exit(1)
